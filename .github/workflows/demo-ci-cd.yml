@@ -5,6 +5,8 @@ on:
     branches: [develop, main]
   pull_request:
     branches: [develop]
+  release:
+    types: [published]
 
 jobs:
   lint:
@@ -94,3 +96,34 @@ jobs:
           tags: ghcr.io/${{ github.repository_owner }}/demo-app:prod-${{ github.sha }}
           build-args: |
             APP_ENV=production
+      - name: Health check simulation
+        run: |
+          echo "Simulating health check..."
+          sleep 5
+          # Simulate failure for demo (remove this line in real scenario)
+          # exit 1
+
+  rollback:
+    if: failure() && github.ref == 'refs/heads/main'
+    needs: deploy-prod
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rollback to previous production image
+        run: |
+          echo "Rolling back to previous stable image..."
+          # In real scenario, this would pull the previous image tag
+          # For demo, we'll just log the rollback action
+          echo "Previous image tag: prod-$(git rev-parse HEAD~1)"
+          echo "Rollback completed - reverted to stable version"
+
+  release:
+    if: github.event_name == 'release' && github.event.action == 'published'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release artifact
+        run: |
+          echo "Creating release v${{ github.event.release.tag_name }}"
+          # In real scenario, build and package the application
+          echo "Release artifact created for version ${{ github.event.release.tag_name }}"
+
