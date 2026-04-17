@@ -1,5 +1,10 @@
 name: Demo CI/CD Pipeline
 
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
 on:
   push:
     branches: [develop, main]
