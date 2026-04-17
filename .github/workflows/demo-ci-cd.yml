@@ -1,0 +1,96 @@
+name: Demo CI/CD Pipeline
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Lint Python files
+        run: |
+          python -m py_compile demo-app/app.py demo-app/tests/test_app.py
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r demo-app/requirements.txt
+      - name: Run unit tests
+        run: |
+          cd demo-app
+          pytest
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Docker image
+        run: |
+          docker build -t demo-app:${{ github.sha }} demo-app
+      - name: Save Docker image tar
+        run: |
+          docker save demo-app:${{ github.sha }} -o demo-app.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-app-image
+          path: demo-app.tar
+
+  deploy-staging:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: demo-app-image
+      - name: Load Docker image
+        run: docker load -i demo-app.tar
+      - name: Push staging image to GitHub Container Registry
+        uses: docker/login-action@vv2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag and push staging image
+        run: |
+          docker tag demo-app:${{ github.sha }} ghcr.io/${{ github.repository_owner }}/demo-app:staging-${{ github.sha }}
+          docker push ghcr.io/${{ github.repository_owner }}/demo-app:staging-${{ github.sha }}
+
+  deploy-prod:
+    if: github.ref == 'refs/heads/main'
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build and publish production image
+        uses: docker/build-push-action@v5
+        with:
+          context: demo-app
+          file: demo-app/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/demo-app:prod-${{ github.sha }}
+          build-args: |
+            APP_ENV=production
